@@ -106,10 +106,14 @@ fn search_file(gpa: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8) !u
     // try dest_atomic.file.writeAll(src);
 
     // change eligible comments into doc-comments
-    while (comments.popOrNull()) |comment| {
+    for (comments.items) |comment| {
         std.debug.print(
-            "Comment {{\nmultiline: {}\nvalue: {s}\n}}\n\n",
-            .{ comment.is_multiline, src[comment.start..comment.end] },
+            "Comment {{\nline_num: {d}\nmultiline: {}\nvalue: {s}\n}}\n\n",
+            .{
+                1 + std.mem.count(u8, src[0..comment.start], "\n"),
+                comment.is_multiline,
+                src[comment.start..comment.end],
+            },
         );
 
         // TODO: check if this comment can be made into a doc comment
