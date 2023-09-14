@@ -1,6 +1,7 @@
 //! Parse any Zig file and convert comments to doc-comments where possible.
 
 const std = @import("std");
+const Ast = std.zig.Ast;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -44,8 +45,10 @@ fn search_file(gpa: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8) !u
     defer gpa.free(src);
 
     // TODO: figure out how to determine if a comment directly proceeds a declaration
-    // var ast = try std.zig.Ast.parse(gpa, src, .zig);
-    // defer ast.deinit(gpa);
+    var ast = try Ast.parse(gpa, src, .zig);
+    defer ast.deinit(gpa);
+
+    try search_for_decls(gpa, ast);
 
     // Run through source file
     // When it hits a comment, parse it into the Comment struct and push that onto a stack.
@@ -179,4 +182,89 @@ fn is_line_comment_start(src: []const u8, idx: usize) bool {
         if (!std.ascii.isWhitespace(src[j])) break false;
         if (src[j] == '\n') break true;
     } else true;
+}
+
+fn search_for_decls(ally: std.mem.Allocator, ast: Ast) !void {
+    var nodes = try std.ArrayList(Ast.Node.Index).initCapacity(ally, ast.nodes.len + ast.extra_data.len);
+    defer nodes.deinit();
+
+    for (0..ast.nodes.len) |i| nodes.appendAssumeCapacity(@intCast(i));
+    for (ast.extra_data) |node| nodes.appendAssumeCapacity(node);
+
+    var buf = [_]Ast.Node.Index{ 0, 0 };
+    for (nodes.items) |node| {
+        const tag = ast.nodes.items(.tag)[node];
+
+        if (ast.fullContainerDecl(&buf, node)) |_| {} else if (ast.fullContainerField(node)) |_| {} else if (ast.fullVarDecl(node)) |_| {} else continue;
+
+        const token = ast.nodes.items(.main_token)[node];
+        const token_start = ast.tokens.items(.start)[token];
+        const token_loc = ast.tokenLocation(0, token);
+        const token_slice = ast.tokenSlice(token);
+
+        std.debug.print(
+            "node: {d: ^4} \x1b[35m{s: <25}\x1b[39mtoken: {d: >3}:{d: <3} '{s}\x1b[32m{s}\x1b[39m{s}'\n",
+            .{
+                node,
+                @tagName(tag),
+                token_loc.line + 1,
+                token_loc.column + 1,
+                ast.source[token_loc.line_start..token_start],
+                token_slice,
+                ast.source[token_start + token_slice.len .. token_loc.line_end],
+            },
+        );
+    }
+}
+fn recurse_for_decls(ast: Ast) void {
+    const decls = ast.rootDecls();
+    for (decls) |idx| {
+        recurse_for_decls_inner(ast, idx, 0);
+    }
+}
+
+fn indent(d: u8) []const u8 {
+    return switch (d) {
+        inline else => |n| " " ** n,
+    };
+}
+
+fn recurse_for_decls_inner(ast: Ast, node: Ast.Node.Index, depth: u8) void {
+    if (node == 0 or node >= ast.nodes.len) return;
+
+    const token = ast.nodes.items(.main_token)[node];
+    const token_start = ast.tokens.items(.start)[token];
+    const token_loc = ast.tokenLocation(0, token);
+    const token_slice = ast.tokenSlice(token);
+
+    std.debug.print(
+        "node: {s}\x1b[35m{s}\x1b[39m{s}token: {d: >3}:{d: <3} '{s}\x1b[32m{s}\x1b[39m{s}'\n",
+        .{
+            indent(depth * 2),
+            @tagName(ast.nodes.items(.tag)[node]),
+            indent(35 - depth * 2 - @as(u8, @truncate(@tagName(ast.nodes.items(.tag)[node]).len))),
+            token_loc.line + 1,
+            token_loc.column + 1,
+            ast.source[token_loc.line_start..token_start],
+            token_slice,
+            ast.source[token_start + token_slice.len .. token_loc.line_end],
+        },
+    );
+
+    const S = struct {};
+    _ = S;
+
+    var buf = [_]Ast.Node.Index{ 0, 0 };
+    if (ast.fullContainerDecl(&buf, node)) |container_decl| {
+        for (container_decl.ast.members) |member| {
+            recurse_for_decls(ast, member, depth + 1);
+        }
+        recurse_for_decls(ast, container_decl.ast.arg, depth + 1);
+    } else if (ast.fullContainerField(node)) |field| {
+        recurse_for_decls(ast, field.ast.type_expr, depth + 1);
+        recurse_for_decls(ast, field.ast.value_expr, depth + 1);
+    } else if (ast.fullVarDecl(node)) |var_decl| {
+        recurse_for_decls(ast, var_decl.ast.init_node, depth + 1);
+        recurse_for_decls(ast, var_decl.ast.type_node, depth + 1);
+    }
 }
