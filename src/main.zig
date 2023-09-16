@@ -49,6 +49,7 @@ fn search_file(gpa: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8) !u
     defer ast.deinit(gpa);
 
     try search_for_decls(gpa, ast);
+    // recurse_for_decls(ast);
 
     // Run through source file
     // When it hits a comment, parse it into the Comment struct and push that onto a stack.
@@ -251,20 +252,28 @@ fn recurse_for_decls_inner(ast: Ast, node: Ast.Node.Index, depth: u8) void {
         },
     );
 
-    const S = struct {};
+    const S = struct {
+        //! saf
+        //!
+        //!
+        //!
+        //!
+
+        bang: bool,
+    };
     _ = S;
 
     var buf = [_]Ast.Node.Index{ 0, 0 };
     if (ast.fullContainerDecl(&buf, node)) |container_decl| {
         for (container_decl.ast.members) |member| {
-            recurse_for_decls(ast, member, depth + 1);
+            recurse_for_decls_inner(ast, member, depth + 1);
         }
-        recurse_for_decls(ast, container_decl.ast.arg, depth + 1);
+        recurse_for_decls_inner(ast, container_decl.ast.arg, depth + 1);
     } else if (ast.fullContainerField(node)) |field| {
-        recurse_for_decls(ast, field.ast.type_expr, depth + 1);
-        recurse_for_decls(ast, field.ast.value_expr, depth + 1);
+        recurse_for_decls_inner(ast, field.ast.type_expr, depth + 1);
+        recurse_for_decls_inner(ast, field.ast.value_expr, depth + 1);
     } else if (ast.fullVarDecl(node)) |var_decl| {
-        recurse_for_decls(ast, var_decl.ast.init_node, depth + 1);
-        recurse_for_decls(ast, var_decl.ast.type_node, depth + 1);
+        recurse_for_decls_inner(ast, var_decl.ast.init_node, depth + 1);
+        recurse_for_decls_inner(ast, var_decl.ast.type_node, depth + 1);
     }
 }
